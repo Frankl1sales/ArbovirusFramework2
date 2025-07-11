@@ -1,9 +1,9 @@
+# ArbovirusFramework/core.py
 import pandas as pd
 from pathlib import Path
 from typing import List, Any, Callable, Union
 
-# Importa as exceções personalizadas do seu framework
-from .exceptions import FileNotFoundError, InvalidCSVError, ColumnNotFoundError, InvalidFileFormatError,ArbovirusFrameworkError, InvalidTransformationError
+from .exceptions import FileNotFoundError, InvalidCSVError, ColumnNotFoundError, InvalidFileFormatError, InvalidTransformationError, ArbovirusFrameworkError
 
 class ArbovirusDataFrame:
     """
@@ -49,6 +49,20 @@ class ArbovirusDataFrame:
             raise InvalidCSVError(f"Erro ao analisar o arquivo CSV. Pode estar malformado: {e} no arquivo: {file_path}")
         except Exception as e:
             raise InvalidCSVError(f"Ocorreu um erro inesperado ao ler o CSV: {e} no arquivo: {file_path}")
+
+    @classmethod
+    def from_dataframe(cls, df: pd.DataFrame) -> 'ArbovirusDataFrame':
+        """
+        Cria uma instância de ArbovirusDataFrame a partir de um pandas.DataFrame existente.
+
+        Args:
+            df (pd.DataFrame): O DataFrame do pandas a ser encapsulado.
+
+        Returns:
+            ArbovirusDataFrame: Uma nova instância de ArbovirusDataFrame.
+        """
+        return cls(df.copy()) # Garante que a cópia seja independente
+
 
     def head(self, n: int = 5) -> pd.DataFrame:
         """

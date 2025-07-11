@@ -1,140 +1,131 @@
 # main.py
-from ArbovirusFramework import ArbovirusDataFrame, transformations
-from ArbovirusFramework.exceptions import FileNotFoundError, ColumnNotFoundError, InvalidCSVError
 import os
 import pandas as pd
+from pathlib import Path
 
-# --- Criação de um CSV de exemplo para teste ---
-csv_content = """Nome,Idade,Cidade,Salario,Doenca
-Alice,30,New York,60000,Dengue
-Bob,24,London,45000,Zika
-Charlie,,Paris,70000,
-David,35,New York,80000,Dengue
-Eve,29,London,,Chikungunya
-Frank,40,Berlin,95000,
-Grace,22,Paris,50000,Dengue
-"""
-csv_file_path = "dados_arbovirus.csv"
-with open(csv_file_path, "w", encoding="utf-8") as f:
-    f.write(csv_content)
-print(f"Arquivo '{csv_file_path}' criado para demonstração.\n")
+# Importe os módulos do seu ArbovirusFramework
+from ArbovirusFramework import ArbovirusDataFrame, ingestion, transformations, combination, exceptions
 
-# --- Demonstração do uso do ArbovirusFramework ---
-try:
-    print("--- Carregando o Dataset ---")
-    df_arbovirus = ArbovirusDataFrame.from_csv(csv_file_path)
-    print(df_arbovirus.head())
-    print("\n")
+# --- Configurações Globais ---
+# A PASTA_RAIZ_PROJETO é onde o script está sendo executado.
+PASTA_RAIZ_PROJETO = Path(os.getcwd())
 
-    print("--- Informações do DataFrame ---")
-    df_arbovirus.info()
-    print("\n")
+# Dicionário para renomear colunas de dados climáticos brutos
+COLUNAS_CLIMA_ORIGINAIS_PARA_SIMPLIFICAR = {
+    "Data Medicao": "data",
+    "PRECIPITACAO TOTAL, DIARIO (AUT)(mm)": "precipitacao",
+    "TEMPERATURA DO PONTO DE ORVALHO MEDIA DIARIA (AUT)(Â°C)": "ponto_orvalho",
+    "TEMPERATURA MEDIA, DIARIA (AUT)(Â°C)": "temp_media",
+    "UMIDADE RELATIVA DO AR, MEDIA DIARIA (AUT)(%)": "umidade",
+    "TEMPERATURA MAXIMA, DIARIA (AUT)(Â°C)": "temp_max",
+    "TEMPERATURA MINIMA, DIARIA (AUT)(Â°C)": "temp_min"
+}
 
-    print("--- Estatísticas Descritivas ---")
-    print(df_arbovirus.describe())
-    print("\n")
+def main(cities_config):
+    """
+    Função principal que orquestra todo o processo de dados para múltiplas cidades
+    usando o ArbovirusFramework.
 
-    # Seleção de colunas
-    print("--- Selecionando Colunas 'Nome' e 'Doenca' ---")
-    df_selecionado = df_arbovirus.select_columns(['Nome', 'Doenca'])
-    print(df_selecionado.head())
-    print("\n")
+    Args:
+        cities_config (list of dict): Uma lista de dicionários, onde cada dicionário
+                                      contém a configuração para uma cidade.
+    """
+    print(f"Iniciando o processo unificado de dados na pasta base: {PASTA_RAIZ_PROJETO}")
 
-    # Filtragem de linhas (ex: pessoas com Dengue)
-    print("--- Filtrando Linhas: Pessoas com 'Dengue' ---")
-    df_dengue = df_arbovirus.filter_rows(lambda df: df['Doenca'] == 'Dengue')
-    print(df_dengue.head())
-    print("\n")
+    for city_config in cities_config:
+        municipio_name = city_config['municipio_name']
+        city_folder = city_config['folder_name']
+        raw_climate_filenames = city_config['raw_climate_filenames']
 
-    # Preenchimento de valores ausentes (ex: Idade com a mediana, Salario com a média)
-    print("--- Preenchendo Valores Ausentes (Idade com mediana, Salario com média) ---")
-    df_preenchido_idade = transformations.fill_missing_values(df_arbovirus, strategy='median', columns='Idade')
-    df_preenchido_final = transformations.fill_missing_values(df_preenchido_idade, strategy='mean', columns='Salario')
-    print(df_preenchido_final.head())
-    print("\n")
+        print(f"\n--- Processando dados para a cidade: {municipio_name} (pasta: {city_folder}) ---")
 
-    # Criando uma nova coluna (ex: Categoria Salarial)
-    print("--- Criando Nova Coluna 'CategoriaSalarial' ---")
-    df_com_categoria = transformations.create_new_column(
-        df_preenchido_final,
-        'CategoriaSalarial',
-        lambda df: df['Salario'].apply(lambda s: 'Alta' if s > 70000 else 'Baixa')
-    )
-    print(df_com_categoria.head())
-    print("\n")
+        # --- Etapa 1: Processamento de Dados Climáticos Brutos ---
+        print(f"Iniciando ingestão de arquivos brutos de clima para {city_folder}...")
+        try:
+            # Esta função agora retorna os caminhos dos arquivos processados, mas não é estritamente necessário aqui
+            # para o fluxo subsequente, pois aggregate_and_transform_climate_data irá lê-los diretamente.
+            ingestion.process_raw_climate_data(
+                city_folder=city_folder,
+                raw_climate_file_names=raw_climate_filenames,
+                col_mapping_dict=COLUNAS_CLIMA_ORIGINAIS_PARA_SIMPLIFICAR,
+                base_path=PASTA_RAIZ_PROJETO
+            )
+            print(f"Ingestão de arquivos brutos de clima para {city_folder} concluída.")
 
-    # Aplicando função a uma coluna (ex: Doenca em maiúsculas)
-    print("--- Convertendo Coluna 'Doenca' para Maiúsculas ---")
-    df_doenca_maiuscula = transformations.apply_function_to_column(
-        df_com_categoria,
-        'Doenca',
-        lambda d: str(d).upper() if pd.notna(d) else d
-    )
-    print(df_doenca_maiuscula.head())
-    print("\n")
+            # Agregação e transformação de dados climáticos
+            climate_features_df = ingestion.aggregate_and_transform_climate_data(
+                city_folder=city_folder,
+                base_path=PASTA_RAIZ_PROJETO
+            )
+            if climate_features_df is None:
+                print(f"⚠️ Pulando a combinação para {municipio_name} pois os dados climáticos processados não foram gerados ou estão vazios.")
+                continue
 
-    # Removendo duplicatas (ex: com base em Nome e Idade)
-    # Vamos adicionar uma duplicata temporária para testar
-    temp_df = df_doenca_maiuscula.get_dataframe()
-    temp_df.loc[len(temp_df)] = ['Alice', 30, 'New York', 60000, 'DENGUE', 'Baixa'] # Adiciona uma duplicata
-    df_with_temp_dup = ArbovirusDataFrame(temp_df)
+        except exceptions.ArbovirusFrameworkError as e:
+            print(f"⚠️ Erro na etapa de dados climáticos para {municipio_name}: {e}")
+            continue # Pula para a próxima cidade se houver erro crítico no clima
+        except Exception as e:
+            print(f"⚠️ Erro inesperado na etapa de dados climáticos para {municipio_name}: {e}")
+            continue
 
-    print("--- DataFrame com Duplicata Temporária ---")
-    print(df_with_temp_dup.tail(3))
-    print("\n")
+        # --- Etapa 2: Processamento de Dados Epidemiológicos ---
+        print(f"Iniciando ingestão de dados epidemiológicos para {municipio_name}...")
+        cases_df = None
+        try:
+            cases_df = ingestion.process_epidemiological_data(
+                city_config=city_config,
+                base_path=PASTA_RAIZ_PROJETO
+            )
+            if cases_df is None:
+                print(f"⚠️ Pulando a combinação para {municipio_name} pois os dados epidemiológicos processados não foram gerados ou estão vazios.")
+                continue
 
-    print("--- Removendo Duplicatas com base em 'Nome' e 'Idade' ---")
-    df_sem_duplicatas = transformations.drop_duplicates(df_with_temp_dup, subset=['Nome', 'Idade'])
-    print(df_sem_duplicatas.tail()) # Alice duplicada deve ter sido removida
-    print(f"Linhas antes: {df_with_temp_dup.shape[0]}, Linhas depois: {df_sem_duplicatas.shape[0]}\n")
+        except exceptions.ArbovirusFrameworkError as e:
+            print(f"⚠️ Erro na etapa de dados epidemiológicos para {municipio_name}: {e}")
+            continue
+        except Exception as e:
+            print(f"⚠️ Erro inesperado na etapa de dados epidemiológicos para {municipio_name}: {e}")
+            continue
 
-    # Renomeando colunas
-    print("--- Renomeando Colunas 'Nome' para 'Paciente' e 'Salario' para 'RendaMensal' ---")
-    df_renomeado = transformations.rename_columns(
-        df_sem_duplicatas,
-        {'Nome': 'Paciente', 'Salario': 'RendaMensal'}
-    )
-    print(df_renomeado.head())
-    print("\n")
+        # --- Etapa 3: Combinação de Dados Climáticos e Epidemiológicos ---
+        print(f"Iniciando combinação de dados para {municipio_name}...")
+        try:
+            combined_df = combination.combine_climate_and_epidemiological_data(
+                climate_df=climate_features_df,
+                cases_df=cases_df,
+                city_config=city_config,
+                base_path=PASTA_RAIZ_PROJETO
+            )
+            if combined_df is None:
+                print(f"⚠️ Não foi possível gerar o arquivo combinado para {municipio_name}.")
 
-    # Salvando o DataFrame processado
-    output_csv_path = "dados_arbovirus_processados.csv"
-    df_renomeado.save_to_csv(output_csv_path, index=False)
-    print(f"DataFrame processado salvo em '{output_csv_path}'.\n")
+        except exceptions.ArbovirusFrameworkError as e:
+            print(f"⚠️ Erro na etapa de combinação para {municipio_name}: {e}")
+        except Exception as e:
+            print(f"⚠️ Erro inesperado na etapa de combinação para {municipio_name}: {e}")
 
-    # --- Testando tratamento de erros ---
-    print("--- Testando Tratamento de Erros ---")
-    try:
-        # Tenta carregar um arquivo que não existe
-        ArbovirusDataFrame.from_csv("arquivo_inexistente.csv")
-    except FileNotFoundError as e:
-        print(f"Erro esperado: {e}")
+    print("\nProcessamento unificado concluído para todas as cidades configuradas.")
 
-    try:
-        # Tenta selecionar uma coluna que não existe
-        df_arbovirus.select_columns(['ColunaQueNaoExiste'])
-    except ColumnNotFoundError as e:
-        print(f"Erro esperado: {e}")
 
-    # Criar um CSV malformado para teste
-    malformed_csv_path = "malformed.csv"
-    with open(malformed_csv_path, "w", encoding="utf-8") as f:
-        f.write("col1,col2\nvalue1,value2,extra\nvalue3,value4\n")
-    try:
-        # Tenta carregar um arquivo CSV malformado
-        ArbovirusDataFrame.from_csv(malformed_csv_path)
-    except InvalidCSVError as e:
-        print(f"Erro esperado: {e}")
-    finally:
-        if os.path.exists(malformed_csv_path):
-            os.remove(malformed_csv_path)
+if __name__ == "__main__":
+    # --- Configuração das Cidades a serem Processadas (Passada pelo Programador) ---
+    CITIES_TO_PROCESS = [
+        {
+            'id_municipio': 310620,
+            'municipio_name': 'Belo Horizonte',
+            'folder_name': 'belo_horizonte',
+            'raw_epi_filename': 'dengue_20_24_MG_reduzido.csv',
+            'raw_climate_filenames': ['dados_A521_D_2020-01-01_2024-12-31.csv']
+        },
+        # Adicione outras cidades aqui, seguindo o mesmo formato:
+        # {
+        #     'id_municipio': 4314407, # Exemplo de ID para Porto Alegre
+        #     'municipio_name': 'Porto Alegre',
+        #     'folder_name': 'porto_alegre',
+        #     'raw_epi_filename': 'dengue_exemplo_POA_reduzido.csv', # Nome do arquivo bruto de dengue para POA
+        #     'raw_climate_filenames': ['dados_estacao_POA_2020-2024.csv'] # Lista de arquivos brutos de clima para POA
+        # },
+    ]
 
-except Exception as e:
-    print(f"\nOcorreu um erro inesperado durante a execução do framework: {e}")
-finally:
-    # Limpeza dos arquivos de teste
-    if os.path.exists(csv_file_path):
-        os.remove(csv_file_path)
-    if os.path.exists(output_csv_path):
-        os.remove(output_csv_path)
-    print("\nArquivos de teste removidos.")
+    # Chama a função principal passando a configuração das cidades
+    main(CITIES_TO_PROCESS)

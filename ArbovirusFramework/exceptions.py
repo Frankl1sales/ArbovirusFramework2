@@ -1,3 +1,4 @@
+# ArbovirusFramework/exceptions.py
 class ArbovirusFrameworkError(Exception):
     """Exceção base para o ArbovirusFramework."""
     pass
@@ -20,4 +21,8 @@ class ColumnNotFoundError(ArbovirusFrameworkError):
 
 class InvalidTransformationError(ArbovirusFrameworkError):
     """Levantada quando uma transformação não pode ser aplicada."""
+    pass
+
+class DataProcessingError(ArbovirusFrameworkError):
+    """Levantada para erros gerais durante o processamento de dados (ingestion, combination)."""
     pass

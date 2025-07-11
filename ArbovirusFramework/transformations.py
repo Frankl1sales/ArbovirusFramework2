@@ -1,5 +1,7 @@
+# ArbovirusFramework/transformations.py
 import pandas as pd
 from typing import Union, List, Any, Callable, Dict
+from datetime import datetime
 
 from .core import ArbovirusDataFrame
 from .exceptions import ColumnNotFoundError, InvalidTransformationError
@@ -21,7 +23,7 @@ def drop_missing_values(data_frame: ArbovirusDataFrame, columns: Union[str, List
         ColumnNotFoundError: Se alguma das colunas especificadas não existir.
         ValueError: Se a estratégia 'how' for inválida.
     """
-    df = data_frame.get_dataframe() # Obtém uma cópia do DF subjacente
+    df = data_frame.get_dataframe()
     if columns:
         if isinstance(columns, str):
             columns = [columns]
@@ -32,7 +34,7 @@ def drop_missing_values(data_frame: ArbovirusDataFrame, columns: Union[str, List
     if how not in ['any', 'all']:
         raise ValueError("O argumento 'how' deve ser 'any' ou 'all'.")
 
-    df.dropna(subset=columns, how=how, inplace=True)
+    df = df.dropna(subset=columns, how=how)
     return ArbovirusDataFrame(df)
 
 def fill_missing_values(data_frame: ArbovirusDataFrame, strategy: str = 'mean',
@@ -65,35 +67,33 @@ def fill_missing_values(data_frame: ArbovirusDataFrame, strategy: str = 'mean',
         if missing_columns:
             raise ColumnNotFoundError(f"Colunas não encontradas para preenchimento de valores ausentes: {', '.join(missing_columns)}")
     else:
-        # Se nenhuma coluna especificada, aplica a todas as colunas numéricas para 'mean'/'median'
         if strategy in ['mean', 'median']:
             columns = df.select_dtypes(include=['number']).columns.tolist()
         elif strategy in ['mode', 'ffill', 'bfill', 'value']:
-            columns = df.columns.tolist() # Pode aplicar a qualquer tipo
+            columns = df.columns.tolist()
 
-    if not columns: # Se não houver colunas aplicáveis após a seleção
-        return ArbovirusDataFrame(df) # Retorna o DataFrame original se não houver colunas para preencher
+    if not columns:
+        return ArbovirusDataFrame(df)
 
     for col in columns:
         try:
             if strategy == 'mean':
                 if pd.api.types.is_numeric_dtype(df[col]):
-                    df[col].fillna(df[col].mean(), inplace=True)
+                    df[col] = df[col].fillna(df[col].mean())
             elif strategy == 'median':
                 if pd.api.types.is_numeric_dtype(df[col]):
-                    df[col].fillna(df[col].median(), inplace=True)
+                    df[col] = df[col].fillna(df[col].median())
             elif strategy == 'mode':
-                # Mode pode retornar múltiplos valores, pegue o primeiro se houver
                 if not df[col].mode().empty:
-                    df[col].fillna(df[col].mode()[0], inplace=True)
+                    df[col] = df[col].fillna(df[col].mode()[0])
             elif strategy == 'ffill':
-                df[col].fillna(method='ffill', limit=limit, inplace=True)
+                df[col] = df[col].fillna(method='ffill', limit=limit)
             elif strategy == 'bfill':
-                df[col].fillna(method='bfill', limit=limit, inplace=True)
+                df[col] = df[col].fillna(method='bfill', limit=limit)
             elif strategy == 'value':
                 if value is None:
                     raise ValueError("Um valor deve ser fornecido quando a estratégia for 'value'.")
-                df[col].fillna(value, inplace=True)
+                df[col] = df[col].fillna(value)
             else:
                 raise ValueError(f"Estratégia de preenchimento não suportada: {strategy}")
         except Exception as e:
@@ -127,7 +127,7 @@ def drop_duplicates(data_frame: ArbovirusDataFrame, subset: Union[str, List[str]
     if keep not in ['first', 'last', False]:
         raise ValueError("O argumento 'keep' deve ser 'first', 'last' ou False.")
 
-    df.drop_duplicates(subset=subset, keep=keep, inplace=True)
+    df = df.drop_duplicates(subset=subset, keep=keep)
     return ArbovirusDataFrame(df)
 
 def apply_function_to_column(data_frame: ArbovirusDataFrame, column: str, func: Callable[[Any], Any]) -> ArbovirusDataFrame:
@@ -209,7 +209,107 @@ def rename_columns(data_frame: ArbovirusDataFrame, column_mapping: Dict[str, str
     if missing_columns:
         raise ColumnNotFoundError(f"Colunas a serem renomeadas não encontradas: {', '.join(missing_columns)}")
     try:
-        df.rename(columns=column_mapping, inplace=True)
+        df = df.rename(columns=column_mapping)
     except Exception as e:
         raise InvalidTransformationError(f"Erro ao renomear colunas: {e}")
+    return ArbovirusDataFrame(df)
+
+def calculate_rolling_mean(data_frame: ArbovirusDataFrame, column: str, window: int, new_column_suffix: str = '_media') -> ArbovirusDataFrame:
+    """Calcula a média móvel para uma coluna específica e adiciona como nova coluna."""
+    df = data_frame.get_dataframe()
+    if column not in df.columns:
+        raise ColumnNotFoundError(f"Coluna '{column}' não encontrada para calcular média móvel.")
+    try:
+        new_col_name = f"{column}{new_column_suffix}_{window}d"
+        df[new_col_name] = df[column].rolling(window=window, min_periods=1).mean()
+    except Exception as e:
+        raise InvalidTransformationError(f"Erro ao calcular média móvel para coluna '{column}': {e}")
+    return ArbovirusDataFrame(df)
+
+def calculate_rolling_sum(data_frame: ArbovirusDataFrame, column: str, window: int, new_column_suffix: str = '_soma') -> ArbovirusDataFrame:
+    """Calcula a soma móvel para uma coluna específica e adiciona como nova coluna."""
+    df = data_frame.get_dataframe()
+    if column not in df.columns:
+        raise ColumnNotFoundError(f"Coluna '{column}' não encontrada para calcular soma móvel.")
+    try:
+        new_col_name = f"{column}{new_column_suffix}_{window}d"
+        df[new_col_name] = df[column].rolling(window=window, min_periods=1).sum()
+    except Exception as e:
+        raise InvalidTransformationError(f"Erro ao calcular soma móvel para coluna '{column}': {e}")
+    return ArbovirusDataFrame(df)
+
+def shift_cases(data_frame: ArbovirusDataFrame, date_column: str, cases_column: str, days: int) -> ArbovirusDataFrame:
+    """
+    Adia (shifts) a quantidade de casos em um número específico de dias.
+    A data_column deve ser do tipo datetime.
+    """
+    df = data_frame.get_dataframe()
+    if date_column not in df.columns:
+        raise ColumnNotFoundError(f"Coluna de data '{date_column}' não encontrada para adiantar casos.")
+    if cases_column not in df.columns:
+        raise ColumnNotFoundError(f"Coluna de casos '{cases_column}' não encontrada para adiantar casos.")
+
+    if not pd.api.types.is_datetime64_any_dtype(df[date_column]):
+        raise InvalidTransformationError(f"A coluna '{date_column}' deve ser do tipo datetime para adiantar casos.")
+
+    # Garante que o DataFrame esteja ordenado por data para o shift funcionar corretamente
+    df_sorted = df.sort_values(by=date_column).copy()
+    
+    # Criar uma cópia para evitar SettingWithCopyWarning
+    df_temp = df_sorted[[date_column, cases_column]].copy()
+    df_temp.set_index(date_column, inplace=True)
+    
+    # Shift com frequência 'D' para deslocar por dias
+    shifted_series = df_temp[cases_column].shift(periods=-days, freq='D')
+    
+    # Adicionar a coluna ao DataFrame original, alinhando pelos índices de data
+    new_column_name = f"{cases_column}_{abs(days)}dias" if days != 0 else cases_column
+    df_sorted[new_column_name] = shifted_series.reset_index(drop=True) # Resetar index para alinhar por posição
+
+    # Preenche NaNs resultantes do shift no final com os valores originais.
+    # Isso é feito após o shift e antes de retornar.
+    df_sorted[new_column_name] = df_sorted[new_column_name].fillna(df_sorted[cases_column])
+
+    return ArbovirusDataFrame(df_sorted)
+
+def identify_season(data: datetime) -> Union[str, None]:
+    """
+    Identifica a estação do ano no hemisfério sul com base na data.
+    """
+    if pd.isna(data):
+        return None
+    
+    # Datas de início das estações para o hemisfério sul (aproximadas)
+    outono_inicio = datetime(data.year, 3, 20)
+    inverno_inicio = datetime(data.year, 6, 21)
+    primavera_inicio = datetime(data.year, 9, 22)
+    verao_inicio = datetime(data.year, 12, 21)
+    
+    if data >= verao_inicio or data < outono_inicio:
+        return "Verão"
+    elif data >= outono_inicio and data < inverno_inicio:
+        return "Outono"
+    elif data >= inverno_inicio and data < primavera_inicio:
+        return "Inverno"
+    elif data >= primavera_inicio and data < verao_inicio:
+        return "Primavera"
+    else:
+        return None
+
+def add_season_column(data_frame: ArbovirusDataFrame, date_column: str = 'dt_notific') -> ArbovirusDataFrame:
+    """
+    Adiciona a coluna 'estacao' ao DataFrame com base na coluna de data fornecida.
+    Assume que a coluna de data já é do tipo datetime.
+    """
+    df = data_frame.get_dataframe()
+    if date_column not in df.columns:
+        raise ColumnNotFoundError(f"Coluna '{date_column}' não encontrada para adicionar estação.")
+    
+    if not pd.api.types.is_datetime64_any_dtype(df[date_column]):
+        raise InvalidTransformationError(f"A coluna '{date_column}' deve ser do tipo datetime para identificar a estação.")
+
+    try:
+        df['estacao'] = df[date_column].apply(identify_season)
+    except Exception as e:
+        raise InvalidTransformationError(f"Erro ao adicionar coluna 'estacao': {e}")
     return ArbovirusDataFrame(df)
