@@ -1,5 +1,8 @@
 # ArbovirusFramework: Pipeline de Processamento e Integração de Dados Climáticos e Epidemiológicos
 
+![Capa - pepiline de ligação das funções do Arbovirus](pipelineFramework.png)
+
+
 ## 📄 Visão Geral
 
 Este repositório contém o código principal (`main.py`) do **ArbovirusFramework**, um projeto dedicado à automação da coleta, padronização e integração de dados climáticos e epidemiológicos de arboviroses (como Dengue, Chikungunya e Zika) para análise e modelagem.
