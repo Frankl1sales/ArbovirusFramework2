@@ -105,7 +105,7 @@ Contribuições para o **ArbovirusFramework** são muito bem-vindas\! Se você t
 
 ## 📄 Licença
 
-Este projeto está licenciado sob a Licença MIT. Para mais detalhes, consulte o arquivo `LICENSE` no repositório.
+Este projeto está licenciado sob a Licença MIT. Para mais detalhes, consulte o arquivo `LICENSE.md` no repositório.
 
 ## ✉️ Contato
 
